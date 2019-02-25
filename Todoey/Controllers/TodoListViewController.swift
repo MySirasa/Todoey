@@ -7,40 +7,27 @@
 //
 
 import UIKit
+import CoreData
 
 class TodoListViewController: UITableViewController {
 
-    // var itemArray = ["Find Mike", "Buy Eggos", "Destory Demogorgon"]
+    @IBOutlet weak var searchBar: UISearchBar!
+    
     var itemArray = [Item]()
     
-    // let userDefault = UserDefaults.standard
-    let dataFilePath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first?.appendingPathComponent("Items.plist")
+    var selectedCategory : Category? {
+        didSet {
+            loadItems()
+        }
+    }
+    
+    let context = (UIApplication.shared.delegate as! AppDelegate).persistentContainer.viewContext
     
     override func viewDidLoad() {
         super.viewDidLoad()
         
         // Path to keep DB File
-        //print(dataFilePath)
-        
-        // Old static data
-//        let newItem1 = Item()
-//        newItem1.title = "Find Mike"
-//        itemArray.append(newItem1)
-//
-//        let newItem2 = Item()
-//        newItem2.title = "Buy Eggos"
-//        itemArray.append(newItem2)
-//
-//        let newItem3 = Item()
-//        newItem3.title = "Destory Demogorgon"
-//        itemArray.append(newItem3)
-
-        // load data from user default
-//        if let items = userDefault.array(forKey: "TodoListArray") as? [Item] {
-//            itemArray = items
-//        }
-        
-        loadItems()
+        print(FileManager.default.urls(for: .documentDirectory, in: .userDomainMask))
     }
 
     // MARK - Tableview Datasource Methods
@@ -49,10 +36,6 @@ class TodoListViewController: UITableViewController {
     }
     
     override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        
-        // print("cell for row at index path call")
-        // let cell = UITableViewCell(style: .default, reuseIdentifier: "ToDoItemCell")
-        
         // ใช้วิธีนี้จะทำให้เก็บค่าของ cell โดยที่ไม่ถูกทับไป
         let cell = tableView.dequeueReusableCell(withIdentifier: "ToDoItemCell", for: indexPath)
         
@@ -63,28 +46,12 @@ class TodoListViewController: UITableViewController {
         // Ternary Operator
         cell.accessoryType = item.done ? .checkmark : .none
         
-        // แปลงเป็นตัวบน
-//        if item.done == true {
-//            cell.accessoryType = .checkmark
-//        } else {
-//            cell.accessoryType = .none
-//        }
-        
         return cell
     }
     
     // MARK - TableView Delegate Methods
     override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
-        // print(itemArray[indexPath.row])
-        
         itemArray[indexPath.row].done = !itemArray[indexPath.row].done
-        
-        // แถนด้วย code ด้านบน
-//        if itemArray[indexPath.row].done == false {
-//            itemArray[indexPath.row].done = true
-//        } else {
-//            itemArray[indexPath.row].done = false
-//        }
         
         saveItem()
         
@@ -93,6 +60,7 @@ class TodoListViewController: UITableViewController {
     
     // MARK - Add New Item
     @IBAction func addButtonPressed(_ sender: UIBarButtonItem) {
+        
         var textField = UITextField()
         
         let alert = UIAlertController(title: "Add New Todoey Item", message: "", preferredStyle: .alert)
@@ -101,8 +69,10 @@ class TodoListViewController: UITableViewController {
             // whst will happen once the user clicks the Item button on our UIAlert
             
             // Create Item
-            let newItem = Item()
+            let newItem = Item(context: self.context)
             newItem.title = textField.text!
+            newItem.done = false
+            newItem.parentCategory = self.selectedCategory
             self.itemArray.append(newItem)
             
             // self.userDefault.set(self.itemArray, forKey: "TodoListArray")
@@ -121,27 +91,58 @@ class TodoListViewController: UITableViewController {
     
     // Mask - Model Manupulation Methods
     func saveItem() {
-        let encoder = PropertyListEncoder()
-        
         do {
-            let data = try encoder.encode(itemArray)
-            try data.write(to: dataFilePath!)
+            // Use Context
+            try context.save()
+            
         } catch {
-            print("Error encoding item array, \(error)")
+            print("Error saving context \(error)")
         }
         
         self.tableView.reloadData()
     }
     
-    func loadItems() {
-        if let data = try? Data(contentsOf: dataFilePath!) {
-            let decoder = PropertyListDecoder()
-            do {
-                itemArray = try decoder.decode([Item].self, from: data)
-            } catch {
-                print("Error decoding item array, \(error)")
+    func loadItems(with request: NSFetchRequest<Item> = Item.fetchRequest(), predicate: NSPredicate? = nil) {
+        
+        let categoryPredicate = NSPredicate(format: "parentCategory.name MATCHES %@", selectedCategory!.name!)
+        
+        if let addtionalPredicate = predicate {
+            request.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [categoryPredicate, addtionalPredicate])
+        } else {
+            request.predicate = categoryPredicate
+        }
+        
+        do {
+            itemArray = try context.fetch(request)
+        } catch {
+            print("Error fetching data from context \(error)")
+        }
+        
+        tableView.reloadData()
+    }
+    
+}
+
+// MARK: - Search bar methods
+extension TodoListViewController: UISearchBarDelegate {
+
+    func searchBarSearchButtonClicked(_ searchBar: UISearchBar) {
+        let request : NSFetchRequest<Item> = Item.fetchRequest()
+
+        let predicate = NSPredicate(format: "title CONTAINS[cd] %@", searchBar.text!)
+
+        request.sortDescriptors = [NSSortDescriptor(key: "title", ascending: true)]
+
+        loadItems(with: request, predicate: predicate)
+    }
+
+    func searchBar(_ searchBar: UISearchBar, textDidChange searchText: String) {
+        if searchBar.text?.count == 0 {
+            loadItems()
+
+            DispatchQueue.main.async {
+                searchBar.resignFirstResponder()
             }
-            
         }
     }
 }
